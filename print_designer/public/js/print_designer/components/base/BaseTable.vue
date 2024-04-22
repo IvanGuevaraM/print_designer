@@ -13,7 +13,7 @@
 		]"
 	>
 		<div
-			:style="['overflow: hidden;', widthHeightStyle(width - 2, height)]"
+			:style="['overflow: hidden;', widthHeightStyle(width, height)]"
 			@click.stop.self="
 				() => {
 					selectedColumn = null;
@@ -163,6 +163,7 @@ const {
 	selectedColumn,
 	selectedDynamicText,
 	DOMRef,
+	isDynamicHeight,
 } = toRefs(props.object);
 
 watch(
@@ -230,10 +231,20 @@ const handleDblClick = (table, column) => {
 const handleMenuClick = (index, action) => {
 	switch (action) {
 		case "before":
-			columns.value.splice(index, 0, { id: index, label: "" });
+			columns.value.splice(index, 0, {
+				id: index,
+				label: "",
+				style: {},
+				applyStyleToHeader: false,
+			});
 			break;
 		case "after":
-			columns.value.splice(index + 1, 0, { id: index + 1, label: "" });
+			columns.value.splice(index + 1, 0, {
+				id: index + 1,
+				label: "",
+				style: {},
+				applyStyleToHeader: false,
+			});
 			break;
 		case "delete":
 			columns.value.splice(index, 1)[0].dynamicContent?.forEach((el) => {
@@ -368,7 +379,6 @@ const handleMouseUp = (e, tablewidth) => {
 	background-color: var(--gray-300);
 }
 .table-container {
-	border: 1px solid var(--gray-400);
 	background-color: var(--gray-50);
 	.printTable {
 		border-collapse: collapse;
