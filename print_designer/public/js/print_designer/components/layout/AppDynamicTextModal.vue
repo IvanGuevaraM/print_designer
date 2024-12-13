@@ -148,6 +148,7 @@ import { useMainStore } from "../../store/MainStore";
 import AppModal from "./AppModal.vue";
 import IconsUse from "../../icons/IconsUse.vue";
 import AppDynamicPreviewModal from "./AppDynamicPreviewModal.vue";
+import { getFormattedValue } from "../../utils";
 const MainStore = useMainStore();
 const props = defineProps({
 	openDynamicModal: {
@@ -215,15 +216,23 @@ const parentFieldWatcher = watch(
 
 onMounted(() => {
 	if (props.openDynamicModal) {
-		fieldnames.value = props.openDynamicModal.dynamicContent;
+		fieldnames.value = props.openDynamicModal.dynamicContent || [];
 		selectedDoctypeLabel.value = MainStore.doctype;
-		if (props.table) {
-			fieldnames.value = props.openDynamicModal.dynamicContent || [];
-		}
 		fieldnames.value.findIndex((fd) => fd.print_hide) != -1 && (hiddenFields.value = true);
 		if (!hiddenFields.value) {
 			hiddenFields.value = MainStore.isHiddenFieldsVisible;
 		}
+		fieldnames.value.forEach(async (field) => {
+			if (field.fieldtype != "StaticText" || !field.parseJinja) {
+				let rowValue = null;
+				if (props.table) {
+					rowValue = MainStore.docData[props.table.fieldname][0];
+					field.value = await getFormattedValue(field, rowValue);
+				} else {
+					field.value = await getFormattedValue(field, null);
+				}
+			}
+		});
 	}
 });
 
@@ -270,58 +279,11 @@ const selectField = async (field, fieldtype) => {
 	});
 	if (isRemoved) return;
 	let index = fieldnames.value.length;
-	let value = previewRef.value.parentField
-		? await getValue(
-				doctype.value,
-				MainStore.docData[previewRef.value.parentField],
-				field.fieldname
-		  )
-		: props.table
-		? MainStore.docData[props.table.fieldname]?.length &&
-		  typeof MainStore.docData[props.table.fieldname][0][field.fieldname] != "undefined"
-			? frappe.format(
-					MainStore.docData[props.table.fieldname][0][field.fieldname],
-					{ fieldtype: field.fieldtype, options: field.options },
-					{ inline: true },
-					MainStore.docData
-			  )
-			: `{{ ${field.fieldname} }}`
-		: frappe.format(
-				MainStore.docData[field.fieldname],
-				{ fieldtype: field.fieldtype, options: field.options },
-				{ inline: true },
-				MainStore.docData
-		  );
-	if (!value) {
-		if (["Image, Attach Image"].indexOf(field.fieldtype) != -1) {
-			value = null;
-		} else {
-			switch (field.fieldname) {
-				case "page":
-					value = "0";
-					break;
-				case "topage":
-					value = "999";
-					break;
-				case "date":
-					value = frappe.datetime.now_date();
-					break;
-				case "time":
-					value = frappe.datetime.now_time();
-					break;
-				default:
-					value = `{{ ${
-						previewRef.value.parentField ? previewRef.value.parentField + "." : ""
-					}${field.fieldname} }}`;
-			}
-		}
-	}
 	let dynamicField = {
 		doctype: doctype.value,
 		parentField: previewRef.value.parentField,
 		fieldname: field.fieldname,
 		options: field.options,
-		value,
 		fieldtype,
 		label: props.table ? field.label : `${field.label} :`,
 		suffix: null,
@@ -333,6 +295,11 @@ const selectField = async (field, fieldtype) => {
 		labelStyle: {},
 		nextLine: !props.table,
 	};
+	let rowValue = null;
+	if (props.table) {
+		rowValue = MainStore.docData[props.table.fieldname][0];
+	}
+	dynamicField["value"] = await getFormattedValue(dynamicField, rowValue);
 	if (previewRef.value.selectedEl) {
 		index = previewRef.value.selectedEl.index + 1;
 		fieldnames.value.splice(index, 0, dynamicField);

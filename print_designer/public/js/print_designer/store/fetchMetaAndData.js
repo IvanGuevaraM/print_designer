@@ -1,39 +1,34 @@
 import { watch, markRaw } from "vue";
 import { useMainStore } from "./MainStore";
 import { useElementStore } from "./ElementStore";
-export const fetchMeta = () => {
+export const fetchMeta = async () => {
 	const MainStore = useMainStore();
-	frappe.model.clear_doc("Print Format", MainStore.printDesignName);
-	frappe.model.with_doc("Print Format", MainStore.printDesignName, () => {
-		let print_format = frappe.get_doc("Print Format", MainStore.printDesignName);
-		MainStore.doctype = print_format.doc_type;
-		frappe.model.with_doctype(print_format.doc_type, () => {
-			MainStore.rawMeta = markRaw(frappe.get_meta(print_format.doc_type));
-			let metaFields = frappe.get_meta(print_format.doc_type).fields.filter((df) => {
-				if (
-					["Section Break", "Column Break", "Tab Break", "Image"].includes(df.fieldtype)
-				) {
-					return false;
-				} else {
-					return true;
-				}
-			});
-			metaFields.map((field) => {
-				let obj = {};
-				["fieldname", "fieldtype", "label", "options", "print_hide"].forEach((attr) => {
-					obj[attr] = field[attr];
-				});
-				MainStore.metaFields.push({ ...obj });
-			});
-			metaFields.map((field) => {
-				if (field["fieldtype"] == "Table") {
-					getMeta(field.options, field.fieldname);
-				}
-			});
-			fetchDoc();
-			!MainStore.getTableMetaFields.length && (MainStore.controls.Table.isDisabled = true);
-		});
+	MainStore.doctype = await getValue("Print Format", MainStore.printDesignName, "doc_type");
+	MainStore.rawMeta = await frappe.xcall(
+		"print_designer.print_designer.page.print_designer.print_designer.get_meta",
+		{ doctype: MainStore.doctype }
+	);
+	let metaFields = MainStore.rawMeta.fields.filter((df) => {
+		if (["Section Break", "Column Break", "Tab Break", "Image"].includes(df.fieldtype)) {
+			return false;
+		} else {
+			return true;
+		}
 	});
+	metaFields.map((field) => {
+		let obj = {};
+		["fieldname", "fieldtype", "label", "options", "print_hide"].forEach((attr) => {
+			obj[attr] = field[attr];
+		});
+		MainStore.metaFields.push({ ...obj });
+	});
+	metaFields.map((field) => {
+		if (field["fieldtype"] == "Table") {
+			getMeta(field.options, field.fieldname);
+		}
+	});
+	fetchDoc();
+	!MainStore.getTableMetaFields.length && (MainStore.controls.Table.isDisabled = true);
 	return;
 };
 
@@ -43,15 +38,15 @@ export const getMeta = async (doctype, parentField) => {
 	if (MainStore.metaFields.find((o) => o.fieldname == parentField)["childfields"]) {
 		return MainStore.metaFields[parentField]["childfields"];
 	}
-	let result;
 	const exculdeFields = ["Section Break", "Column Break", "Tab Break", "HTML"];
 	if (parentMetaField.fieldtype != "Table") {
 		// Remove Link Field
 		exculdeFields.push("Link");
 	}
-	await frappe.model.with_doctype(doctype, async () => {
-		result = await frappe.get_meta(doctype);
-	});
+	const result = await frappe.xcall(
+		"print_designer.print_designer.page.print_designer.print_designer.get_meta",
+		{ doctype }
+	);
 	let childfields = result.fields.filter((df) => {
 		if (
 			exculdeFields.includes(df.fieldtype) ||
@@ -130,62 +125,5 @@ export const fetchDoc = async (id = null) => {
 			MainStore.docData = doc;
 		},
 		{ immediate: true }
-	);
-
-	watch(
-		() => MainStore.docData,
-		async () => {
-			if (!Object.keys(MainStore.docData).length) return;
-			await frappe.dom.freeze();
-			MainStore.dynamicData.forEach(async (el) => {
-				if (el.is_static) return;
-				let value = el.parentField
-					? await getValue(el.doctype, MainStore.docData[el.parentField], el.fieldname)
-					: el.tableName
-					? MainStore.docData[el.tableName][0] &&
-					  frappe.format(
-							MainStore.docData[el.tableName][0][el.fieldname],
-							{ fieldtype: el.fieldtype, options: el.options },
-							{ inline: true },
-							MainStore.docData
-					  )
-					: frappe.format(
-							MainStore.docData[el.fieldname],
-							{ fieldtype: el.fieldtype, options: el.options },
-							{ inline: true },
-							MainStore.docData
-					  );
-				if (typeof value == "string" && value.startsWith("<svg")) {
-					value.match(new RegExp(`data-barcode-value="(.*?)">`));
-					value = result[1];
-				}
-				if (!value) {
-					if (["Image, Attach Image"].indexOf(el.fieldtype) != -1) {
-						value = null;
-					} else {
-						switch (el.fieldname) {
-							case "page":
-								value = "0";
-								break;
-							case "topage":
-								value = "999";
-								break;
-							case "date":
-								value = frappe.datetime.now_date();
-								break;
-							case "time":
-								value = frappe.datetime.now_time();
-								break;
-							default:
-								value = `{{ ${el.parentField ? el.parentField + "." : ""}${
-									el.fieldname
-								} }}`;
-						}
-					}
-				}
-				el.value = value;
-			});
-			await frappe.dom.unfreeze();
-		}
 	);
 };
